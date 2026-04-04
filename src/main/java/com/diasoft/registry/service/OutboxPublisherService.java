@@ -76,7 +76,7 @@ public class OutboxPublisherService {
                     set published = true, published_at = :publishedAt
                     where id = :id
                     """)
-                    .param("publishedAt", now)
+                    .param("publishedAt", JdbcTime.timestamp(now))
                     .param("id", record.id())
                     .update();
             publishSuccessCounter.increment();

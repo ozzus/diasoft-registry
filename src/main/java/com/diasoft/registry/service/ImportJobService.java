@@ -115,8 +115,8 @@ public class ImportJobService {
                 .param("universityId", universityId)
                 .param("objectKey", objectKey)
                 .param("status", ImportJobStatus.pending.name())
-                .param("createdAt", now)
-                .param("updatedAt", now)
+                .param("createdAt", JdbcTime.timestamp(now))
+                .param("updatedAt", JdbcTime.timestamp(now))
                 .update();
 
         auditService.log(
@@ -236,7 +236,7 @@ public class ImportJobService {
                 where id = :id
                 """)
                 .param("status", ImportJobStatus.processing.name())
-                .param("updatedAt", now)
+                .param("updatedAt", JdbcTime.timestamp(now))
                 .param("id", job.id())
                 .update();
 
@@ -312,7 +312,7 @@ public class ImportJobService {
                 .param("processedRows", processedRows)
                 .param("failedRows", failedRows)
                 .param("status", finalStatus.name())
-                .param("updatedAt", finishedAt)
+                .param("updatedAt", JdbcTime.timestamp(finishedAt))
                 .param("id", job.id())
                 .update();
 
@@ -541,7 +541,7 @@ public class ImportJobService {
                 .param("id", studentId)
                 .param("externalId", externalId)
                 .param("fullName", fullName)
-                .param("createdAt", Instant.now(clock))
+                .param("createdAt", JdbcTime.timestamp(Instant.now(clock)))
                 .update();
         return studentId;
     }
@@ -579,7 +579,7 @@ public class ImportJobService {
                     .param("graduationYear", row.graduationYear())
                     .param("recordHash", recordHash)
                     .param("status", DiplomaStatus.valid.name())
-                    .param("updatedAt", now)
+                    .param("updatedAt", JdbcTime.timestamp(now))
                     .param("id", diplomaId)
                     .update();
         } else {
@@ -599,8 +599,8 @@ public class ImportJobService {
                     .param("graduationYear", row.graduationYear())
                     .param("recordHash", recordHash)
                     .param("status", DiplomaStatus.valid.name())
-                    .param("createdAt", now)
-                    .param("updatedAt", now)
+                    .param("createdAt", JdbcTime.timestamp(now))
+                    .param("updatedAt", JdbcTime.timestamp(now))
                     .update();
         }
 
@@ -623,7 +623,7 @@ public class ImportJobService {
                             .param("id", UUID.randomUUID())
                             .param("diplomaId", diplomaId)
                             .param("token", newToken)
-                            .param("createdAt", now)
+                            .param("createdAt", JdbcTime.timestamp(now))
                             .update();
                     return newToken;
                 });
@@ -653,7 +653,7 @@ public class ImportJobService {
                 where id = :id
                 """)
                 .param("status", ImportJobStatus.failed.name())
-                .param("updatedAt", Instant.now(clock))
+                .param("updatedAt", JdbcTime.timestamp(Instant.now(clock)))
                 .param("id", job.id())
                 .update();
 
@@ -677,7 +677,7 @@ public class ImportJobService {
                 .param("rowNumber", rowNumber)
                 .param("code", code)
                 .param("message", message)
-                .param("createdAt", Instant.now(clock))
+                .param("createdAt", JdbcTime.timestamp(Instant.now(clock)))
                 .update();
     }
 

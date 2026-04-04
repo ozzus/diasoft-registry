@@ -39,7 +39,7 @@ public class OutboxService {
                 .param("eventType", eventType)
                 .param("eventVersion", "v1")
                 .param("payload", toEnvelopeJson(aggregateType, aggregateId, eventType, payload, now))
-                .param("createdAt", now)
+                .param("createdAt", JdbcTime.timestamp(now))
                 .update();
     }
 

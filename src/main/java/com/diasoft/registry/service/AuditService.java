@@ -34,7 +34,7 @@ public class AuditService {
                 .param("entityType", entityType)
                 .param("entityId", entityId)
                 .param("payload", payloadJson)
-                .param("createdAt", now)
+                .param("createdAt", JdbcTime.timestamp(now))
                 .update();
     }
 

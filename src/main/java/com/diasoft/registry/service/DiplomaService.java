@@ -255,9 +255,9 @@ public class DiplomaService {
                 where id = :id
                 """)
                 .param("status", DiplomaStatus.revoked.name())
-                .param("revokedAt", now)
+                .param("revokedAt", JdbcTime.timestamp(now))
                 .param("revokeReason", reason)
-                .param("updatedAt", now)
+                .param("updatedAt", JdbcTime.timestamp(now))
                 .param("id", diploma.id())
                 .update();
 
@@ -268,7 +268,7 @@ public class DiplomaService {
                 .param("id", UUID.randomUUID())
                 .param("diplomaId", diploma.id())
                 .param("reason", reason)
-                .param("createdAt", now)
+                .param("createdAt", JdbcTime.timestamp(now))
                 .update();
 
         auditService.log(
@@ -313,10 +313,10 @@ public class DiplomaService {
                 .param("id", shareLinkId)
                 .param("diplomaId", diploma.id())
                 .param("token", shareToken)
-                .param("expiresAt", expiresAt)
+                .param("expiresAt", JdbcTime.timestamp(expiresAt))
                 .param("maxViews", maxViews)
                 .param("status", ShareLinkStatus.active.name())
-                .param("createdAt", createdAt)
+                .param("createdAt", JdbcTime.timestamp(createdAt))
                 .update();
 
         auditService.log(
