@@ -1,0 +1,71 @@
+spring:
+  application:
+    name: diasoft-registry
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/diasoft_registry}
+    username: ${SPRING_DATASOURCE_USERNAME:registry}
+    password: ${SPRING_DATASOURCE_PASSWORD:registry}
+  flyway:
+    enabled: true
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    properties:
+      security.protocol: ${KAFKA_SECURITY_PROTOCOL:PLAINTEXT}
+      sasl.mechanism: ${KAFKA_SASL_MECHANISM:SCRAM-SHA-512}
+      sasl.jaas.config: org.apache.kafka.common.security.scram.ScramLoginModule required username="${KAFKA_USERNAME:}" password="${KAFKA_PASSWORD:}";
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${OIDC_ISSUER_URI:http://localhost:8081/realms/diasoft}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+        add-additional-paths: true
+      show-details: always
+
+app:
+  runtime:
+    mode: ${APP_RUNTIME_MODE:api}
+  security:
+    enabled: ${APP_SECURITY_ENABLED:false}
+    dev-identity:
+      subject: ${APP_DEV_SUBJECT:dev-super-admin}
+      roles: ${APP_DEV_ROLES:super_admin}
+      university-id: ${APP_DEV_UNIVERSITY_ID:11111111-1111-1111-1111-111111111111}
+      student-external-id: ${APP_DEV_STUDENT_EXTERNAL_ID:student-001}
+  http:
+    allowed-origins: ${APP_ALLOWED_ORIGINS:http://localhost:5173}
+  import:
+    chunk-size: ${IMPORT_CHUNK_SIZE:500}
+    poll-delay: ${IMPORT_POLL_DELAY:5000}
+  object-storage:
+    endpoint: ${OBJECT_STORAGE_ENDPOINT:http://localhost:9000}
+    bucket: ${OBJECT_STORAGE_BUCKET:diploma-imports}
+    region: ${OBJECT_STORAGE_REGION:ru-central1}
+    access-key: ${OBJECT_STORAGE_ACCESS_KEY:minioadmin}
+    secret-key: ${OBJECT_STORAGE_SECRET_KEY:minioadmin}
+    path-style-access: ${OBJECT_STORAGE_PATH_STYLE_ACCESS:true}
+    auto-create-bucket: ${OBJECT_STORAGE_AUTO_CREATE_BUCKET:true}
+  outbox:
+    batch-size: ${OUTBOX_BATCH_SIZE:100}
+    poll-delay: ${OUTBOX_POLL_DELAY:5000}
+    producer: diasoft-registry
+    retry-attempts: ${OUTBOX_RETRY_ATTEMPTS:3}
+    retry-backoff: ${OUTBOX_RETRY_BACKOFF:PT1S}
+    retry-max-backoff: ${OUTBOX_RETRY_MAX_BACKOFF:PT5S}
+  gateway:
+    public-base-url: ${GATEWAY_PUBLIC_BASE_URL:http://localhost:8080}
+  share-link:
+    ttl: ${SHARE_LINK_TTL:PT24H}
+    max-views: ${SHARE_LINK_MAX_VIEWS:3}
