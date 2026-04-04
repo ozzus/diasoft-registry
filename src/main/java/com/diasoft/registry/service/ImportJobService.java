@@ -36,6 +36,7 @@ public class ImportJobService {
     private static final String CODE_MISSING_REQUIRED_FIELD = "missing_required_field";
     private static final String CODE_DUPLICATE_DIPLOMA_NUMBER = "duplicate_diploma_number";
     private static final String CODE_PERSISTENCE_ERROR = "persistence_error";
+    private static final String REQUIRED_HEADERS_MESSAGE = "first row must contain headers: ФИО, номер_диплома, специальность, год_выпуска";
 
     private final JdbcClient jdbcClient;
     private final ObjectStorageService objectStorageService;
@@ -84,7 +85,8 @@ public class ImportJobService {
         if (file.isEmpty()) {
             throw new BadRequestException("import file is empty");
         }
-        validateUploadFile(file);
+        byte[] fileBytes = readUploadBytes(file);
+        validateUploadFile(file, fileBytes);
         ensureUniversityExists(universityId);
 
         UUID importJobId = UUID.randomUUID();
@@ -98,8 +100,8 @@ public class ImportJobService {
         try {
             objectStorageService.putObject(
                     objectKey,
-                    file.getInputStream(),
-                    file.getSize(),
+                    new ByteArrayInputStream(fileBytes),
+                    fileBytes.length,
                     file.getContentType() == null ? "application/octet-stream" : file.getContentType()
             );
         } catch (Exception ex) {
@@ -132,7 +134,15 @@ public class ImportJobService {
         return getImportInternal(importJobId);
     }
 
-    private void validateUploadFile(MultipartFile file) {
+    private byte[] readUploadBytes(MultipartFile file) {
+        try {
+            return file.getBytes();
+        } catch (Exception ex) {
+            throw new BadRequestException("failed to read import file");
+        }
+    }
+
+    private void validateUploadFile(MultipartFile file, byte[] bytes) {
         String originalFilename = file.getOriginalFilename();
         if (originalFilename == null || originalFilename.isBlank()) {
             throw new BadRequestException("file name is required");
@@ -141,6 +151,12 @@ public class ImportJobService {
         String normalizedFilename = originalFilename.trim().toLowerCase(Locale.ROOT);
         if (!normalizedFilename.endsWith(".csv") && !normalizedFilename.endsWith(".xlsx")) {
             throw new BadRequestException("unsupported file type; use .csv or .xlsx");
+        }
+
+        try {
+            extractRowsFromBytes(normalizedFilename, bytes);
+        } catch (ImportFileException ex) {
+            throw new BadRequestException(ex.getMessage());
         }
     }
 
@@ -342,7 +358,11 @@ public class ImportJobService {
 
     private ParsedImportData extractRows(String objectKey) {
         byte[] bytes = objectStorageService.getObject(objectKey);
-        if (objectKey.toLowerCase().endsWith(".xlsx")) {
+        return extractRowsFromBytes(objectKey, bytes);
+    }
+
+    private ParsedImportData extractRowsFromBytes(String fileName, byte[] bytes) {
+        if (fileName.toLowerCase(Locale.ROOT).endsWith(".xlsx")) {
             return extractSpreadsheetRows(bytes);
         }
         return extractCsvRows(bytes);
@@ -352,8 +372,7 @@ public class ImportJobService {
         String content = new String(bytes, StandardCharsets.UTF_8);
         String[] rawLines = content.split("\\R");
         List<RawImportRow> rows = new ArrayList<>();
-        ColumnMapping columnMapping = ColumnMapping.legacy();
-        boolean mappingResolved = false;
+        ColumnMapping columnMapping = null;
         for (int index = 0; index < rawLines.length; index++) {
             String rawLine = rawLines[index];
             if (rawLine == null || rawLine.isBlank()) {
@@ -361,18 +380,16 @@ public class ImportJobService {
             }
 
             List<String> cells = splitCsvLine(rawLine);
-            if (!mappingResolved) {
-                ColumnMapping headerMapping = tryBuildColumnMapping(cells);
-                if (headerMapping != null) {
-                    columnMapping = headerMapping;
-                    mappingResolved = true;
-                    continue;
-                }
-                mappingResolved = true;
+            if (columnMapping == null) {
+                columnMapping = requireHeaderMapping(cells);
+                continue;
             }
             rows.add(new RawImportRow(index + 1, cells));
         }
 
+        if (columnMapping == null) {
+            throw new ImportFileException(CODE_INVALID_FILE_FORMAT, "import file does not contain header row");
+        }
         if (rows.isEmpty()) {
             throw new ImportFileException(CODE_INVALID_FILE_FORMAT, "import file does not contain data rows");
         }
@@ -388,25 +405,22 @@ public class ImportJobService {
 
             DataFormatter formatter = new DataFormatter();
             List<RawImportRow> rows = new ArrayList<>();
-            ColumnMapping columnMapping = ColumnMapping.legacy();
-            boolean mappingResolved = false;
+            ColumnMapping columnMapping = null;
             for (Row row : sheet) {
                 List<String> cells = extractCells(row, formatter);
                 if (cells.isEmpty() || cells.stream().allMatch(String::isBlank)) {
                     continue;
                 }
-                if (!mappingResolved) {
-                    ColumnMapping headerMapping = tryBuildColumnMapping(cells);
-                    if (headerMapping != null) {
-                        columnMapping = headerMapping;
-                        mappingResolved = true;
-                        continue;
-                    }
-                    mappingResolved = true;
+                if (columnMapping == null) {
+                    columnMapping = requireHeaderMapping(cells);
+                    continue;
                 }
                 rows.add(new RawImportRow(row.getRowNum() + 1, cells));
             }
 
+            if (columnMapping == null) {
+                throw new ImportFileException(CODE_INVALID_FILE_FORMAT, "xlsx import does not contain header row");
+            }
             if (rows.isEmpty()) {
                 throw new ImportFileException(CODE_INVALID_FILE_FORMAT, "xlsx import does not contain data rows");
             }
@@ -445,7 +459,7 @@ public class ImportJobService {
         return cells;
     }
 
-    private ColumnMapping tryBuildColumnMapping(List<String> cells) {
+    private ColumnMapping requireHeaderMapping(List<String> cells) {
         int studentExternalId = -1;
         int fullName = -1;
         int diplomaNumber = -1;
@@ -475,8 +489,8 @@ public class ImportJobService {
             }
         }
 
-        if (fullName < 0 || diplomaNumber < 0 || programName < 0) {
-            return null;
+        if (fullName < 0 || diplomaNumber < 0 || programName < 0 || graduationYear < 0) {
+            throw new ImportFileException(CODE_INVALID_FILE_FORMAT, REQUIRED_HEADERS_MESSAGE);
         }
         return new ColumnMapping(studentExternalId, fullName, diplomaNumber, programName, graduationYear);
     }
@@ -730,11 +744,7 @@ public class ImportJobService {
 
     private record ParsedImportData(List<RawImportRow> rows, ColumnMapping columnMapping) {}
 
-    private record ColumnMapping(int studentExternalId, int fullName, int diplomaNumber, int programName, int graduationYear) {
-        private static ColumnMapping legacy() {
-            return new ColumnMapping(0, 1, 2, 3, -1);
-        }
-    }
+    private record ColumnMapping(int studentExternalId, int fullName, int diplomaNumber, int programName, int graduationYear) {}
 
     private record RawImportRow(int rowNumber, List<String> cells) {}
 

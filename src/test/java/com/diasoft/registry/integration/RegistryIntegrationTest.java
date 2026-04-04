@@ -256,6 +256,73 @@ class RegistryIntegrationTest {
     }
 
     @Test
+    void createImportRejectsCsvWithoutHeaderRow() throws Exception {
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "students.csv",
+                "text/csv",
+                """
+                Ivan Petrov,D-2026-0043,Computer Science,2026
+                """.getBytes(StandardCharsets.UTF_8)
+        );
+
+        mockMvc.perform(multipart("/api/v1/universities/{id}/imports", ITMO_ID)
+                        .file(file)
+                        .with(request -> {
+                            request.setMethod("POST");
+                            return request;
+                        })
+                        .with(universityRole("university_operator", ITMO_ID)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("first row must contain headers: ФИО, номер_диплома, специальность, год_выпуска"));
+
+        assertThat(count("select count(*) from import_jobs")).isEqualTo(0);
+    }
+
+    @Test
+    void createImportRejectsCsvWithMissingRequiredHeaders() throws Exception {
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "students.csv",
+                "text/csv",
+                """
+                ФИО,номер_диплома,специальность
+                Ivan Petrov,D-2026-0044,Computer Science
+                """.getBytes(StandardCharsets.UTF_8)
+        );
+
+        mockMvc.perform(multipart("/api/v1/universities/{id}/imports", ITMO_ID)
+                        .file(file)
+                        .with(request -> {
+                            request.setMethod("POST");
+                            return request;
+                        })
+                        .with(universityRole("university_operator", ITMO_ID)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("first row must contain headers: ФИО, номер_диплома, специальность, год_выпуска"));
+
+        assertThat(count("select count(*) from import_jobs")).isEqualTo(0);
+    }
+
+    @Test
+    void csvImportIgnoresExtraColumns() throws Exception {
+        String importJobId = createImport(
+                ITMO_ID,
+                "students.csv",
+                "text/csv",
+                """
+                ФИО,номер_диплома,специальность,год_выпуска,комментарий,цвет_диплома
+                Ivan Petrov,D-2026-0045,Computer Science,2026,priority import,blue
+                """);
+
+        assertThat(importJobService.processNextPendingImport()).isTrue();
+
+        Map<String, Object> importJob = findImportJob(importJobId);
+        assertThat(importJob.get("status")).isEqualTo("completed");
+        assertThat(count("select count(*) from diplomas")).isEqualTo(1);
+    }
+
+    @Test
     void createImportRejectsUnsupportedFileType() throws Exception {
         MockMultipartFile file = new MockMultipartFile(
                 "file",
