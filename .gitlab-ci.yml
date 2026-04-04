@@ -5,6 +5,7 @@ stages:
   - contracts
   - build
   - publish
+  - promote
 
 variables:
   GRADLE_OPTS: "-Dorg.gradle.daemon=false"
@@ -116,3 +117,57 @@ publish_contracts:
     - sh scripts/publish-contracts.sh build/contracts/registry-contracts.tar.gz "$CI_COMMIT_SHA"
   only:
     - main
+
+promote_team1_dev:
+  stage: promote
+  image: mikefarah/yq:4
+  needs:
+    - publish_image
+    - publish_contracts
+  before_script:
+    - apk add --no-cache git curl
+  script:
+    - TARGET_TEAM=team1 TARGET_ENV=dev PROMOTION_MODE=direct sh scripts/promote-platform-infra.sh
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main" && $PLATFORM_INFRA_REPO_URL && $PLATFORM_INFRA_PUSH_URL'
+
+promote_team1_prod:
+  stage: promote
+  image: mikefarah/yq:4
+  needs:
+    - publish_image
+    - publish_contracts
+  before_script:
+    - apk add --no-cache git curl
+  script:
+    - TARGET_TEAM=team1 TARGET_ENV=prod PROMOTION_MODE=mr sh scripts/promote-platform-infra.sh
+  when: manual
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main" && $PLATFORM_INFRA_REPO_URL && $PLATFORM_INFRA_PUSH_URL'
+
+promote_team2_dev:
+  stage: promote
+  image: mikefarah/yq:4
+  needs:
+    - publish_image
+    - publish_contracts
+  before_script:
+    - apk add --no-cache git curl
+  script:
+    - TARGET_TEAM=team2 TARGET_ENV=dev PROMOTION_MODE=direct sh scripts/promote-platform-infra.sh
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main" && $PLATFORM_INFRA_REPO_URL && $PLATFORM_INFRA_PUSH_URL'
+
+promote_team2_prod:
+  stage: promote
+  image: mikefarah/yq:4
+  needs:
+    - publish_image
+    - publish_contracts
+  before_script:
+    - apk add --no-cache git curl
+  script:
+    - TARGET_TEAM=team2 TARGET_ENV=prod PROMOTION_MODE=mr sh scripts/promote-platform-infra.sh
+  when: manual
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main" && $PLATFORM_INFRA_REPO_URL && $PLATFORM_INFRA_PUSH_URL'
