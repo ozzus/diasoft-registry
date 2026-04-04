@@ -225,6 +225,37 @@ class RegistryIntegrationTest {
     }
 
     @Test
+    void csvImportAcceptsNameHeaderAlias() throws Exception {
+        String importJobId = createImport(
+                ITMO_ID,
+                "students.csv",
+                "text/csv",
+                """
+                name,diploma_number,program,graduation_year
+                Ivan Petrov,D-2026-0042,Computer Science,2026
+                """
+        );
+
+        assertThat(importJobService.processNextPendingImport()).isTrue();
+
+        Map<String, Object> importJob = findImportJob(importJobId);
+        assertThat(importJob.get("status")).isEqualTo("completed");
+
+        String persistedDiplomaNumber = jdbcClient.sql("""
+                select diploma_number
+                from diplomas
+                where university_id = :universityId
+                order by created_at desc
+                limit 1
+                """)
+                .param("universityId", ITMO_ID)
+                .query(String.class)
+                .single();
+
+        assertThat(persistedDiplomaNumber).isEqualTo("D-2026-0042");
+    }
+
+    @Test
     void createImportRejectsUnsupportedFileType() throws Exception {
         MockMultipartFile file = new MockMultipartFile(
                 "file",

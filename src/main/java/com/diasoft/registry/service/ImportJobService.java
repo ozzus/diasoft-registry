@@ -458,7 +458,7 @@ public class ImportJobService {
                 case "studentexternalid", "studentid", "student":
                     studentExternalId = index;
                     break;
-                case "fullname", "фио":
+                case "fullname", "фио", "name":
                     fullName = index;
                     break;
                 case "diplomanumber", "номердиплома":
