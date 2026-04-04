@@ -36,7 +36,8 @@ Source-of-truth Spring Boot service for diploma imports, diploma lifecycle manag
 
 ## Swagger / OpenAPI
 
-Internal API contract lives in [api/openapi/internal.yaml](api/openapi/internal.yaml).
+Canonical platform Swagger now lives in `diasoft-gateway/api/openapi/openapi.yaml`.
+This repository no longer keeps a separate local OpenAPI yaml file.
 
 ## Runtime modes
 

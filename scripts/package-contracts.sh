@@ -5,8 +5,7 @@ output_dir="${1:-build/contracts}"
 version="${2:-dev}"
 package_name="${CONTRACTS_PACKAGE_NAME:-registry-contracts}"
 
-mkdir -p "$output_dir/$package_name/api/openapi" "$output_dir/$package_name/contracts"
-cp api/openapi/internal.yaml "$output_dir/$package_name/api/openapi/internal.yaml"
+mkdir -p "$output_dir/$package_name/contracts"
 cp -R contracts/kafka "$output_dir/$package_name/contracts/kafka"
 
 tarball_path="$output_dir/$package_name.tar.gz"
