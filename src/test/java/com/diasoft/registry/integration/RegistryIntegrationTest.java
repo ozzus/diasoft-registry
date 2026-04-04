@@ -45,6 +45,7 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @Tag("integration")
@@ -221,6 +222,28 @@ class RegistryIntegrationTest {
                 .list();
 
         assertThat(errorCodes).containsExactly("duplicate_diploma_number", "missing_required_field");
+    }
+
+    @Test
+    void createImportRejectsUnsupportedFileType() throws Exception {
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "students.bin",
+                "application/octet-stream",
+                new byte[] {0x00, 0x01, 0x02}
+        );
+
+        mockMvc.perform(multipart("/api/v1/universities/{id}/imports", ITMO_ID)
+                        .file(file)
+                        .with(request -> {
+                            request.setMethod("POST");
+                            return request;
+                        })
+                        .with(universityRole("university_operator", ITMO_ID)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("unsupported file type; use .csv or .xlsx"));
+
+        assertThat(count("select count(*) from import_jobs")).isEqualTo(0);
     }
 
     @Test

@@ -11,6 +11,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -83,6 +84,7 @@ public class ImportJobService {
         if (file.isEmpty()) {
             throw new BadRequestException("import file is empty");
         }
+        validateUploadFile(file);
         ensureUniversityExists(universityId);
 
         UUID importJobId = UUID.randomUUID();
@@ -128,6 +130,18 @@ public class ImportJobService {
         );
 
         return getImportInternal(importJobId);
+    }
+
+    private void validateUploadFile(MultipartFile file) {
+        String originalFilename = file.getOriginalFilename();
+        if (originalFilename == null || originalFilename.isBlank()) {
+            throw new BadRequestException("file name is required");
+        }
+
+        String normalizedFilename = originalFilename.trim().toLowerCase(Locale.ROOT);
+        if (!normalizedFilename.endsWith(".csv") && !normalizedFilename.endsWith(".xlsx")) {
+            throw new BadRequestException("unsupported file type; use .csv or .xlsx");
+        }
     }
 
     public List<ImportJobResponse> listImports(UUID universityId) {
