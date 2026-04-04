@@ -3,6 +3,7 @@ package com.diasoft.registry.service;
 import com.diasoft.registry.api.dto.DiplomaResponse;
 import com.diasoft.registry.api.dto.GatewayDiplomaListResponse;
 import com.diasoft.registry.api.dto.GatewayQrResponse;
+import com.diasoft.registry.api.dto.RegistryDiplomaListResponse;
 import com.diasoft.registry.api.dto.ShareLinkResponse;
 import com.diasoft.registry.config.AppProperties;
 import com.diasoft.registry.model.DiplomaStatus;
@@ -52,26 +53,27 @@ public class DiplomaService {
         this.currentUserService = currentUserService;
     }
 
-    public List<DiplomaResponse> listUniversityDiplomas() {
-        if (currentUserService.isSuperAdmin()) {
-            return jdbcClient.sql(baseDiplomaSelect() + """
-                    order by d.updated_at desc
-                    limit 100
-                    """)
-                    .query(diplomaRowMapper())
-                    .list();
-        }
+    public RegistryDiplomaListResponse listUniversityDiplomas(UUID requestedUniversityId, int page, int pageSize) {
+        QueryFilters filters = buildRegistryUniversityFilters(requestedUniversityId);
+        int safePage = Math.max(page, 1);
+        int safePageSize = Math.max(pageSize, 1);
+        int offset = (safePage - 1) * safePageSize;
 
-        UUID universityId = currentUserService.requireUniversityScope();
-        ensureUniversityExists(universityId);
-        return jdbcClient.sql(baseDiplomaSelect() + """
-                where d.university_id = :universityId
-                order by d.updated_at desc
-                limit 100
-                """)
-                .param("universityId", universityId)
-                .query(diplomaRowMapper())
-                .list();
+        JdbcClient.StatementSpec listQuery = applyFilters(jdbcClient.sql(
+                baseDiplomaSelect() + filters.whereClause() + " order by d.updated_at desc limit :limit offset :offset"
+        ), filters)
+                .param("limit", safePageSize)
+                .param("offset", offset);
+
+        JdbcClient.StatementSpec countQuery = applyFilters(jdbcClient.sql("""
+                select count(*)
+                from diplomas d
+                join students s on s.id = d.student_id
+                """ + filters.whereClause()), filters);
+
+        List<DiplomaResponse> items = listQuery.query(diplomaRowMapper()).list();
+        Long total = countQuery.query(Long.class).single();
+        return new RegistryDiplomaListResponse(items, total == null ? 0 : total);
     }
 
     public DiplomaResponse getUniversityDiploma(UUID diplomaId) {
@@ -384,8 +386,24 @@ public class DiplomaService {
         return new QueryFilters(where.toString(), universityId, searchValue, mappedStatus);
     }
 
+    private QueryFilters buildRegistryUniversityFilters(UUID requestedUniversityId) {
+        if (currentUserService.isSuperAdmin()) {
+            if (requestedUniversityId != null) {
+                ensureUniversityExists(requestedUniversityId);
+                return new QueryFilters(" where d.university_id = :universityId", requestedUniversityId, null, null);
+            }
+            return new QueryFilters("", null, null, null);
+        }
+
+        UUID universityId = currentUserService.requireUniversityScope();
+        ensureUniversityExists(universityId);
+        return new QueryFilters(" where d.university_id = :universityId", universityId, null, null);
+    }
+
     private JdbcClient.StatementSpec applyFilters(JdbcClient.StatementSpec statementSpec, QueryFilters filters) {
-        statementSpec = statementSpec.param("universityId", filters.universityId());
+        if (filters.universityId() != null) {
+            statementSpec = statementSpec.param("universityId", filters.universityId());
+        }
         if (filters.searchValue() != null) {
             statementSpec = statementSpec.param("search", filters.searchValue());
         }
