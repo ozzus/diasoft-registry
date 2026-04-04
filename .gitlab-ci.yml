@@ -1,0 +1,118 @@
+stages:
+  - validate
+  - security
+  - integration
+  - contracts
+  - build
+  - publish
+
+variables:
+  GRADLE_OPTS: "-Dorg.gradle.daemon=false"
+  REGISTRY_API_IMAGE: "$CI_REGISTRY_IMAGE/registry-api"
+  REGISTRY_WORKER_IMAGE: "$CI_REGISTRY_IMAGE/registry-import-worker"
+  REGISTRY_OUTBOX_IMAGE: "$CI_REGISTRY_IMAGE/registry-outbox-publisher"
+  CONTRACTS_PACKAGE_NAME: "registry-contracts"
+
+validate:
+  stage: validate
+  image: gradle:8.10.2-jdk21
+  script:
+    - gradle test --no-daemon
+
+secrets_scan:
+  stage: security
+  image: zricethezav/gitleaks:v8.24.2
+  script:
+    - gitleaks detect --source . --no-git --redact
+
+dependency_scan:
+  stage: security
+  image: aquasec/trivy:0.59.1
+  entrypoint: [""]
+  script:
+    - trivy fs --scanners vuln --severity CRITICAL --exit-code 1 --no-progress .
+
+sbom:
+  stage: security
+  image: anchore/syft:v1.18.1
+  entrypoint: [""]
+  script:
+    - mkdir -p build
+    - syft dir:. -o cyclonedx-json=build/registry-sbom.cdx.json
+  artifacts:
+    paths:
+      - build/registry-sbom.cdx.json
+
+integration_tests:
+  stage: integration
+  image: gradle:8.10.2-jdk21
+  services:
+    - docker:27.3.1-dind
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+    TESTCONTAINERS_HOST_OVERRIDE: docker
+    TESTCONTAINERS_RYUK_DISABLED: "true"
+  script:
+    - gradle integrationTest --no-daemon
+
+contracts_bundle:
+  stage: contracts
+  image: alpine:3.21
+  script:
+    - sh scripts/package-contracts.sh build/contracts "$CI_COMMIT_SHA"
+  artifacts:
+    name: "registry-contracts-$CI_COMMIT_SHA"
+    paths:
+      - build/contracts/registry-contracts.tar.gz
+
+build_image:
+  stage: build
+  image: docker:27.3.1
+  services:
+    - docker:27.3.1-dind
+  script:
+    - docker build -t "$REGISTRY_API_IMAGE:$CI_COMMIT_SHA" .
+    - docker build -t "$REGISTRY_WORKER_IMAGE:$CI_COMMIT_SHA" .
+    - docker build -t "$REGISTRY_OUTBOX_IMAGE:$CI_COMMIT_SHA" .
+
+publish_image:
+  stage: publish
+  image: docker:27.3.1
+  services:
+    - docker:27.3.1-dind
+  script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+    - docker build -t "$REGISTRY_API_IMAGE:$CI_COMMIT_SHA" .
+    - docker build -t "$REGISTRY_WORKER_IMAGE:$CI_COMMIT_SHA" .
+    - docker build -t "$REGISTRY_OUTBOX_IMAGE:$CI_COMMIT_SHA" .
+    - docker push "$REGISTRY_API_IMAGE:$CI_COMMIT_SHA"
+    - docker push "$REGISTRY_WORKER_IMAGE:$CI_COMMIT_SHA"
+    - docker push "$REGISTRY_OUTBOX_IMAGE:$CI_COMMIT_SHA"
+  only:
+    - main
+
+sign_images:
+  stage: publish
+  image: gcr.io/projectsigstore/cosign:v2.4.1
+  entrypoint: [""]
+  needs:
+    - publish_image
+  script:
+    - cosign sign --yes --key env://COSIGN_PRIVATE_KEY "$REGISTRY_API_IMAGE:$CI_COMMIT_SHA"
+    - cosign sign --yes --key env://COSIGN_PRIVATE_KEY "$REGISTRY_WORKER_IMAGE:$CI_COMMIT_SHA"
+    - cosign sign --yes --key env://COSIGN_PRIVATE_KEY "$REGISTRY_OUTBOX_IMAGE:$CI_COMMIT_SHA"
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main" && $COSIGN_PRIVATE_KEY'
+
+publish_contracts:
+  stage: publish
+  image: alpine:3.21
+  dependencies:
+    - contracts_bundle
+  before_script:
+    - apk add --no-cache curl
+  script:
+    - sh scripts/publish-contracts.sh build/contracts/registry-contracts.tar.gz "$CI_COMMIT_SHA"
+  only:
+    - main
