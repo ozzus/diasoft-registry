@@ -121,11 +121,9 @@ public class DiplomaService {
         int safePageSize = Math.max(pageSize, 1);
         int offset = (safePage - 1) * safePageSize;
 
-        JdbcClient.StatementSpec listQuery = applyFilters(jdbcClient.sql(baseDiplomaSelect() + filters.whereClause() + """
-                order by d.updated_at desc
-                limit :limit
-                offset :offset
-                """), filters)
+        JdbcClient.StatementSpec listQuery = applyFilters(jdbcClient.sql(
+                baseDiplomaSelect() + filters.whereClause() + " order by d.updated_at desc limit :limit offset :offset"
+        ), filters)
                 .param("limit", safePageSize)
                 .param("offset", offset);
 
