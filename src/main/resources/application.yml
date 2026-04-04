@@ -45,7 +45,7 @@ app:
       university-id: ${APP_DEV_UNIVERSITY_ID:11111111-1111-1111-1111-111111111111}
       student-external-id: ${APP_DEV_STUDENT_EXTERNAL_ID:student-001}
   http:
-    allowed-origins: ${APP_ALLOWED_ORIGINS:http://localhost:5173}
+    allowed-origins: ${APP_ALLOWED_ORIGINS:*}
   import:
     chunk-size: ${IMPORT_CHUNK_SIZE:500}
     poll-delay: ${IMPORT_POLL_DELAY:5000}
