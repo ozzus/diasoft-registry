@@ -1,5 +1,6 @@
 package com.diasoft.registry.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -7,6 +8,7 @@ import java.util.Map;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.convert.converter.Converter;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AbstractAuthenticationToken;
@@ -18,26 +20,38 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.www.BasicAuthenticationFilter;
 
 @Configuration
 @EnableMethodSecurity
 public class SecurityConfig {
     @Bean
+    GatewayInternalAuthFilter gatewayInternalAuthFilter(
+            @Value("${app.gateway.service-token:}") String serviceToken,
+            ObjectMapper objectMapper
+    ) {
+        return new GatewayInternalAuthFilter(serviceToken, objectMapper);
+    }
+
+    @Bean
     @ConditionalOnProperty(name = "app.security.enabled", havingValue = "false", matchIfMissing = true)
-    SecurityFilterChain insecureFilterChain(HttpSecurity http) throws Exception {
+    SecurityFilterChain insecureFilterChain(HttpSecurity http, GatewayInternalAuthFilter gatewayInternalAuthFilter) throws Exception {
         http
                 .csrf(csrf -> csrf.disable())
+                .addFilterBefore(gatewayInternalAuthFilter, BasicAuthenticationFilter.class)
                 .authorizeHttpRequests(auth -> auth.anyRequest().permitAll());
         return http.build();
     }
 
     @Bean
     @ConditionalOnProperty(name = "app.security.enabled", havingValue = "true")
-    SecurityFilterChain secureFilterChain(HttpSecurity http) throws Exception {
+    SecurityFilterChain secureFilterChain(HttpSecurity http, GatewayInternalAuthFilter gatewayInternalAuthFilter) throws Exception {
         http
                 .csrf(csrf -> csrf.disable())
+                .addFilterBefore(gatewayInternalAuthFilter, BasicAuthenticationFilter.class)
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/v1/ping", "/actuator/health/**", "/actuator/info", "/actuator/prometheus", "/livez", "/readyz").permitAll()
+                        .requestMatchers("/internal/gateway/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/universities").hasAnyAuthority("ROLE_super_admin", "ROLE_university_admin", "ROLE_university_operator")
                         .requestMatchers(HttpMethod.POST, "/api/v1/universities/*/imports").hasAnyAuthority("ROLE_super_admin", "ROLE_university_admin", "ROLE_university_operator")
                         .requestMatchers(HttpMethod.GET, "/api/v1/universities/*/imports").hasAnyAuthority("ROLE_super_admin", "ROLE_university_admin", "ROLE_university_operator")

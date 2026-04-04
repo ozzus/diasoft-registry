@@ -135,8 +135,8 @@ class RegistryIntegrationTest {
                 "students.csv",
                 "text/csv",
                 """
-                student_external_id,full_name,diploma_number,program_name
-                student-001,Ivan Petrov,D-2026-0001,Computer Science
+                ФИО,номер_диплома,специальность,год_выпуска
+                Ivan Petrov,D-2026-0001,Computer Science,2026
                 """
         );
 
@@ -165,10 +165,10 @@ class RegistryIntegrationTest {
     @Test
     void xlsxImportPersistsRowsAndUsesSameValidationContract() throws Exception {
         byte[] workbook = createWorkbook(List.of(
-                List.of("student_external_id", "full_name", "diploma_number", "program_name"),
-                List.of("student-001", "Ivan Petrov", "D-2026-0002", "Computer Science"),
-                List.of("student-002", "Maria Ivanova", "D-2026-0002", "Software Engineering"),
-                List.of("student-003", "Alex Smirnov", "", "Mathematics")
+                List.of("ФИО", "номер_диплома", "специальность", "год_выпуска"),
+                List.of("Ivan Petrov", "D-2026-0002", "Computer Science", "2026"),
+                List.of("Maria Ivanova", "D-2026-0002", "Software Engineering", "2026"),
+                List.of("Alex Smirnov", "", "Mathematics", "2026")
         ));
 
         String importJobId = createImport(ITMO_ID, "students.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", workbook);
@@ -201,10 +201,10 @@ class RegistryIntegrationTest {
                 "students.csv",
                 "text/csv",
                 """
-                student_external_id,full_name,diploma_number,program_name
-                student-001,Ivan Petrov,D-2026-0003,Computer Science
-                student-002,Maria Ivanova,D-2026-0003,Software Engineering
-                student-003,Alex Smirnov,,Mathematics
+                ФИО,номер_диплома,специальность,год_выпуска
+                Ivan Petrov,D-2026-0003,Computer Science,2026
+                Maria Ivanova,D-2026-0003,Software Engineering,2026
+                Alex Smirnov,,Mathematics,2026
                 """
         );
 

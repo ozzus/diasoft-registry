@@ -65,7 +65,8 @@ public record AppProperties(
     ) {}
 
     public record Gateway(
-            @NotBlank String publicBaseUrl
+            @NotBlank String publicBaseUrl,
+            String serviceToken
     ) {}
 
     public record ShareLink(

@@ -9,11 +9,16 @@ public record DiplomaResponse(
         String universityCode,
         UUID studentId,
         String studentExternalId,
+        String ownerName,
         String ownerNameMask,
         String diplomaNumber,
         String programName,
+        Integer graduationYear,
+        String recordHash,
         String status,
         String verificationToken,
+        Instant revokedAt,
+        String revokeReason,
         Instant createdAt,
         Instant updatedAt
 ) {}

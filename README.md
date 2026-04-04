@@ -1,6 +1,6 @@
 # diasoft-registry
 
-Source-of-truth Spring Boot service for diploma imports, diploma lifecycle management, student share-link issuance, audit logging, and outbox publication.
+Source-of-truth Spring Boot service for diploma imports, diploma lifecycle management, student share-link issuance, audit logging, outbox publication, and internal BFF support for `diasoft-gateway`.
 
 ## Components
 
@@ -34,6 +34,22 @@ Source-of-truth Spring Boot service for diploma imports, diploma lifecycle manag
 - `GET /api/v1/student/diplomas/{id}`
 - `POST /api/v1/student/diplomas/{id}/share-links`
 
+## Gateway internal API
+
+For the new frontend handoff, `diasoft-gateway` talks to `diasoft-registry` through a dedicated service-auth layer:
+
+- `GET /internal/gateway/university/diplomas`
+- `POST /internal/gateway/university/imports`
+- `GET /internal/gateway/university/imports/{jobId}`
+- `GET /internal/gateway/university/imports/{jobId}/errors`
+- `POST /internal/gateway/university/diplomas/{id}/revoke`
+- `GET /internal/gateway/university/diplomas/{id}/qr`
+- `GET /internal/gateway/student/diploma`
+- `POST /internal/gateway/student/share-link`
+- `DELETE /internal/gateway/student/share-link/{token}`
+
+These routes are protected by a dedicated bearer token and do not replace the current OIDC-scoped registry API used by `diasoft-web`.
+
 ## Swagger / OpenAPI
 
 Canonical platform Swagger now lives in `diasoft-gateway/api/openapi/openapi.yaml`.
@@ -50,6 +66,7 @@ The same image can run in three modes using `APP_RUNTIME_MODE`:
 ## Import flow
 
 - accepts CSV and XLSX files
+- supports legacy English headers and frontend handoff Russian headers
 - stores import files in S3-compatible object storage
 - processes rows asynchronously
 - records stable validation errors per row

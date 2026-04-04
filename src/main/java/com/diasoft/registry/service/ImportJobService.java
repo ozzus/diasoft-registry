@@ -9,6 +9,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -41,6 +42,7 @@ public class ImportJobService {
     private final ActorResolver actorResolver;
     private final Clock clock;
     private final MaskingService maskingService;
+    private final RecordHashService recordHashService;
     private final OutboxService outboxService;
     private final CurrentUserService currentUserService;
 
@@ -51,6 +53,7 @@ public class ImportJobService {
             ActorResolver actorResolver,
             Clock clock,
             MaskingService maskingService,
+            RecordHashService recordHashService,
             OutboxService outboxService,
             CurrentUserService currentUserService
     ) {
@@ -60,16 +63,26 @@ public class ImportJobService {
         this.actorResolver = actorResolver;
         this.clock = clock;
         this.maskingService = maskingService;
+        this.recordHashService = recordHashService;
         this.outboxService = outboxService;
         this.currentUserService = currentUserService;
     }
 
     @Transactional
     public ImportJobResponse createImport(UUID universityId, MultipartFile file) {
+        currentUserService.assertUniversityAccess(universityId);
+        return createImportInternal(universityId, file);
+    }
+
+    @Transactional
+    public ImportJobResponse createImportForUniversity(UUID universityId, MultipartFile file) {
+        return createImportInternal(universityId, file);
+    }
+
+    private ImportJobResponse createImportInternal(UUID universityId, MultipartFile file) {
         if (file.isEmpty()) {
             throw new BadRequestException("import file is empty");
         }
-        currentUserService.assertUniversityAccess(universityId);
         ensureUniversityExists(universityId);
 
         UUID importJobId = UUID.randomUUID();
@@ -114,7 +127,7 @@ public class ImportJobService {
                 Map.of("university_id", universityId, "object_key", objectKey)
         );
 
-        return getImport(importJobId);
+        return getImportInternal(importJobId);
     }
 
     public List<ImportJobResponse> listImports(UUID universityId) {
@@ -133,7 +146,29 @@ public class ImportJobService {
     }
 
     public ImportJobResponse getImport(UUID importJobId) {
-        ImportJobResponse response = jdbcClient.sql("""
+        ImportJobResponse response = getImportInternal(importJobId);
+        currentUserService.assertUniversityAccess(response.universityId());
+        return response;
+    }
+
+    public ImportJobResponse getImportForUniversity(UUID universityId, UUID importJobId) {
+        ImportJobResponse response = getImportInternal(importJobId);
+        if (!response.universityId().equals(universityId)) {
+            throw new NotFoundException("import job not found");
+        }
+        return response;
+    }
+
+    public List<ImportJobErrorResponse> getImportErrorsForUniversity(UUID universityId, UUID importJobId) {
+        ImportJobResponse response = getImportInternal(importJobId);
+        if (!response.universityId().equals(universityId)) {
+            throw new NotFoundException("import job not found");
+        }
+        return fetchImportErrors(importJobId);
+    }
+
+    private ImportJobResponse getImportInternal(UUID importJobId) {
+        return jdbcClient.sql("""
                 select id, university_id, object_key, status, total_rows, processed_rows, failed_rows, created_at, updated_at
                 from import_jobs
                 where id = :id
@@ -142,12 +177,14 @@ public class ImportJobService {
                 .query(importJobRowMapper())
                 .optional()
                 .orElseThrow(() -> new NotFoundException("import job not found"));
-        currentUserService.assertUniversityAccess(response.universityId());
-        return response;
     }
 
     public List<ImportJobErrorResponse> getImportErrors(UUID importJobId) {
         getImport(importJobId);
+        return fetchImportErrors(importJobId);
+    }
+
+    private List<ImportJobErrorResponse> fetchImportErrors(UUID importJobId) {
         return jdbcClient.sql("""
                 select id, import_job_id, row_number, code, message, created_at
                 from import_job_errors
@@ -204,8 +241,11 @@ public class ImportJobService {
                 .update();
 
         List<RawImportRow> rows;
+        ColumnMapping columnMapping;
         try {
-            rows = extractRows(job.objectKey());
+            ParsedImportData data = extractRows(job.objectKey());
+            rows = data.rows();
+            columnMapping = data.columnMapping();
         } catch (ImportFileException ex) {
             failImport(job, ex.code(), ex.getMessage());
             return;
@@ -222,7 +262,7 @@ public class ImportJobService {
 
         for (RawImportRow rawRow : rows) {
             try {
-                ParsedRow row = parseRow(rawRow);
+                ParsedRow row = parseRow(rawRow, columnMapping, universityCode);
                 Integer firstSeenAt = seenDiplomaNumbers.putIfAbsent(row.diplomaNumber(), rawRow.rowNumber());
                 if (firstSeenAt != null) {
                     throw new ImportRowException(
@@ -231,16 +271,21 @@ public class ImportJobService {
                     );
                 }
                 UUID studentId = findOrCreateStudent(row.studentExternalId(), row.fullName());
-                UpsertedDiploma diploma = upsertDiploma(job.universityId(), studentId, row);
-                outboxService.append("diploma", diploma.id(), diploma.eventType(), Map.of(
-                        "diploma_id", diploma.id().toString(),
-                        "verification_token", diploma.verificationToken(),
-                        "university_code", universityCode,
-                        "diploma_number", row.diplomaNumber(),
-                        "student_name_masked", maskingService.maskFullName(row.fullName()),
-                        "program_name", row.programName(),
-                        "status", DiplomaStatus.valid.name()
-                ));
+                UpsertedDiploma diploma = upsertDiploma(job.universityId(), universityCode, studentId, row);
+                Map<String, Object> payload = new HashMap<>();
+                payload.put("diploma_id", diploma.id().toString());
+                payload.put("verification_token", diploma.verificationToken());
+                payload.put("university_code", universityCode);
+                payload.put("diploma_number", row.diplomaNumber());
+                payload.put("student_name", row.fullName());
+                payload.put("student_name_masked", maskingService.maskFullName(row.fullName()));
+                payload.put("program_name", row.programName());
+                payload.put("record_hash", diploma.recordHash());
+                payload.put("status", DiplomaStatus.valid.name());
+                if (row.graduationYear() != null) {
+                    payload.put("graduation_year", row.graduationYear());
+                }
+                outboxService.append("diploma", diploma.id(), diploma.eventType(), payload);
                 processedRows++;
             } catch (ImportRowException ex) {
                 failedRows++;
@@ -281,7 +326,7 @@ public class ImportJobService {
         ));
     }
 
-    private List<RawImportRow> extractRows(String objectKey) {
+    private ParsedImportData extractRows(String objectKey) {
         byte[] bytes = objectStorageService.getObject(objectKey);
         if (objectKey.toLowerCase().endsWith(".xlsx")) {
             return extractSpreadsheetRows(bytes);
@@ -289,10 +334,12 @@ public class ImportJobService {
         return extractCsvRows(bytes);
     }
 
-    private List<RawImportRow> extractCsvRows(byte[] bytes) {
+    private ParsedImportData extractCsvRows(byte[] bytes) {
         String content = new String(bytes, StandardCharsets.UTF_8);
         String[] rawLines = content.split("\\R");
         List<RawImportRow> rows = new ArrayList<>();
+        ColumnMapping columnMapping = ColumnMapping.legacy();
+        boolean mappingResolved = false;
         for (int index = 0; index < rawLines.length; index++) {
             String rawLine = rawLines[index];
             if (rawLine == null || rawLine.isBlank()) {
@@ -300,8 +347,14 @@ public class ImportJobService {
             }
 
             List<String> cells = splitCsvLine(rawLine);
-            if (rows.isEmpty() && looksLikeHeader(cells)) {
-                continue;
+            if (!mappingResolved) {
+                ColumnMapping headerMapping = tryBuildColumnMapping(cells);
+                if (headerMapping != null) {
+                    columnMapping = headerMapping;
+                    mappingResolved = true;
+                    continue;
+                }
+                mappingResolved = true;
             }
             rows.add(new RawImportRow(index + 1, cells));
         }
@@ -309,10 +362,10 @@ public class ImportJobService {
         if (rows.isEmpty()) {
             throw new ImportFileException(CODE_INVALID_FILE_FORMAT, "import file does not contain data rows");
         }
-        return rows;
+        return new ParsedImportData(rows, columnMapping);
     }
 
-    private List<RawImportRow> extractSpreadsheetRows(byte[] bytes) {
+    private ParsedImportData extractSpreadsheetRows(byte[] bytes) {
         try (Workbook workbook = WorkbookFactory.create(new ByteArrayInputStream(bytes))) {
             Sheet sheet = workbook.getNumberOfSheets() > 0 ? workbook.getSheetAt(0) : null;
             if (sheet == null) {
@@ -321,13 +374,21 @@ public class ImportJobService {
 
             DataFormatter formatter = new DataFormatter();
             List<RawImportRow> rows = new ArrayList<>();
+            ColumnMapping columnMapping = ColumnMapping.legacy();
+            boolean mappingResolved = false;
             for (Row row : sheet) {
                 List<String> cells = extractCells(row, formatter);
                 if (cells.isEmpty() || cells.stream().allMatch(String::isBlank)) {
                     continue;
                 }
-                if (rows.isEmpty() && looksLikeHeader(cells)) {
-                    continue;
+                if (!mappingResolved) {
+                    ColumnMapping headerMapping = tryBuildColumnMapping(cells);
+                    if (headerMapping != null) {
+                        columnMapping = headerMapping;
+                        mappingResolved = true;
+                        continue;
+                    }
+                    mappingResolved = true;
                 }
                 rows.add(new RawImportRow(row.getRowNum() + 1, cells));
             }
@@ -335,7 +396,7 @@ public class ImportJobService {
             if (rows.isEmpty()) {
                 throw new ImportFileException(CODE_INVALID_FILE_FORMAT, "xlsx import does not contain data rows");
             }
-            return rows;
+            return new ParsedImportData(rows, columnMapping);
         } catch (ImportFileException ex) {
             throw ex;
         } catch (Exception ex) {
@@ -361,7 +422,8 @@ public class ImportJobService {
     }
 
     private List<String> splitCsvLine(String rawLine) {
-        String[] parts = rawLine.split(",", -1);
+        String delimiter = rawLine.chars().filter(ch -> ch == ';').count() > rawLine.chars().filter(ch -> ch == ',').count() ? ";" : ",";
+        String[] parts = rawLine.split(delimiter, -1);
         List<String> cells = new ArrayList<>(parts.length);
         for (String part : parts) {
             cells.add(part.trim());
@@ -369,24 +431,49 @@ public class ImportJobService {
         return cells;
     }
 
-    private boolean looksLikeHeader(List<String> cells) {
-        String normalized = String.join(" ", cells).toLowerCase();
-        return normalized.contains("student") || normalized.contains("diploma") || normalized.contains("program");
+    private ColumnMapping tryBuildColumnMapping(List<String> cells) {
+        int studentExternalId = -1;
+        int fullName = -1;
+        int diplomaNumber = -1;
+        int programName = -1;
+        int graduationYear = -1;
+
+        for (int index = 0; index < cells.size(); index++) {
+            String normalized = normalizeHeader(cells.get(index));
+            switch (normalized) {
+                case "studentexternalid", "studentid", "student":
+                    studentExternalId = index;
+                    break;
+                case "fullname", "фио":
+                    fullName = index;
+                    break;
+                case "diplomanumber", "номердиплома":
+                    diplomaNumber = index;
+                    break;
+                case "programname", "program", "специальность":
+                    programName = index;
+                    break;
+                case "graduationyear", "годвыпуска":
+                    graduationYear = index;
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        if (fullName < 0 || diplomaNumber < 0 || programName < 0) {
+            return null;
+        }
+        return new ColumnMapping(studentExternalId, fullName, diplomaNumber, programName, graduationYear);
     }
 
-    private ParsedRow parseRow(RawImportRow row) {
-        if (row.cells().size() < 4) {
-            throw new ImportRowException(CODE_INVALID_COLUMN_COUNT, "expected at least 4 columns: student_external_id, full_name, diploma_number, program_name");
-        }
+    private ParsedRow parseRow(RawImportRow row, ColumnMapping columnMapping, String universityCode) {
+        String fullName = cellAt(row, columnMapping.fullName()).trim();
+        String diplomaNumber = cellAt(row, columnMapping.diplomaNumber()).trim();
+        String programName = cellAt(row, columnMapping.programName()).trim();
+        String studentExternalId = columnMapping.studentExternalId() >= 0 ? cellAt(row, columnMapping.studentExternalId()).trim() : "";
+        Integer graduationYear = null;
 
-        String studentExternalId = row.cells().get(0).trim();
-        String fullName = row.cells().get(1).trim();
-        String diplomaNumber = row.cells().get(2).trim();
-        String programName = row.cells().get(3).trim();
-
-        if (studentExternalId.isBlank()) {
-            throw new ImportRowException(CODE_MISSING_REQUIRED_FIELD, "student_external_id is required");
-        }
         if (fullName.isBlank()) {
             throw new ImportRowException(CODE_MISSING_REQUIRED_FIELD, "full_name is required");
         }
@@ -396,8 +483,36 @@ public class ImportJobService {
         if (programName.isBlank()) {
             throw new ImportRowException(CODE_MISSING_REQUIRED_FIELD, "program_name is required");
         }
+        if (columnMapping.graduationYear() >= 0) {
+            String rawGraduationYear = cellAt(row, columnMapping.graduationYear()).trim();
+            if (rawGraduationYear.isBlank()) {
+                throw new ImportRowException(CODE_MISSING_REQUIRED_FIELD, "graduation_year is required");
+            }
+            try {
+                graduationYear = Integer.parseInt(rawGraduationYear);
+            } catch (NumberFormatException ex) {
+                throw new ImportRowException(CODE_MISSING_REQUIRED_FIELD, "graduation_year must be a number");
+            }
+        }
+        if (studentExternalId.isBlank()) {
+            studentExternalId = universityCode.trim().toUpperCase() + ":" + diplomaNumber;
+        }
 
-        return new ParsedRow(studentExternalId, fullName, diplomaNumber, programName);
+        return new ParsedRow(studentExternalId, fullName, diplomaNumber, programName, graduationYear);
+    }
+
+    private String normalizeHeader(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.toLowerCase().replaceAll("[^\\p{L}\\p{N}]+", "");
+    }
+
+    private String cellAt(RawImportRow row, int index) {
+        if (index < 0 || index >= row.cells().size()) {
+            throw new ImportRowException(CODE_INVALID_COLUMN_COUNT, "required column is missing");
+        }
+        return row.cells().get(index);
     }
 
     private UUID findOrCreateStudent(String externalId, String fullName) {
@@ -431,7 +546,7 @@ public class ImportJobService {
         return studentId;
     }
 
-    private UpsertedDiploma upsertDiploma(UUID universityId, UUID studentId, ParsedRow row) {
+    private UpsertedDiploma upsertDiploma(UUID universityId, String universityCode, UUID studentId, ParsedRow row) {
         Optional<UUID> existingDiploma = jdbcClient.sql("""
                 select id
                 from diplomas
@@ -444,32 +559,45 @@ public class ImportJobService {
 
         Instant now = Instant.now(clock);
         UUID diplomaId = existingDiploma.orElseGet(UUID::randomUUID);
+        String recordHash = recordHashService.compute(universityCode, row.diplomaNumber(), row.fullName(), row.programName(), row.graduationYear());
 
         if (existingDiploma.isPresent()) {
             jdbcClient.sql("""
                     update diplomas
                     set student_id = :studentId,
                         program_name = :programName,
+                        graduation_year = :graduationYear,
+                        record_hash = :recordHash,
                         status = :status,
+                        revoked_at = null,
+                        revoke_reason = null,
                         updated_at = :updatedAt
                     where id = :id
                     """)
                     .param("studentId", studentId)
                     .param("programName", row.programName())
+                    .param("graduationYear", row.graduationYear())
+                    .param("recordHash", recordHash)
                     .param("status", DiplomaStatus.valid.name())
                     .param("updatedAt", now)
                     .param("id", diplomaId)
                     .update();
         } else {
             jdbcClient.sql("""
-                    insert into diplomas (id, university_id, student_id, diploma_number, program_name, status, created_at, updated_at)
-                    values (:id, :universityId, :studentId, :diplomaNumber, :programName, :status, :createdAt, :updatedAt)
+                    insert into diplomas (
+                        id, university_id, student_id, diploma_number, program_name, graduation_year, record_hash, status, created_at, updated_at
+                    )
+                    values (
+                        :id, :universityId, :studentId, :diplomaNumber, :programName, :graduationYear, :recordHash, :status, :createdAt, :updatedAt
+                    )
                     """)
                     .param("id", diplomaId)
                     .param("universityId", universityId)
                     .param("studentId", studentId)
                     .param("diplomaNumber", row.diplomaNumber())
                     .param("programName", row.programName())
+                    .param("graduationYear", row.graduationYear())
+                    .param("recordHash", recordHash)
                     .param("status", DiplomaStatus.valid.name())
                     .param("createdAt", now)
                     .param("updatedAt", now)
@@ -500,7 +628,7 @@ public class ImportJobService {
                     return newToken;
                 });
 
-        return new UpsertedDiploma(diplomaId, verificationToken, existingDiploma.isPresent() ? "diploma.updated.v1" : "diploma.created.v1");
+        return new UpsertedDiploma(diplomaId, verificationToken, recordHash, existingDiploma.isPresent() ? "diploma.updated.v1" : "diploma.created.v1");
     }
 
     private void ensureUniversityExists(UUID universityId) {
@@ -586,11 +714,19 @@ public class ImportJobService {
 
     private record LockedImportJob(UUID id, UUID universityId, String objectKey) {}
 
+    private record ParsedImportData(List<RawImportRow> rows, ColumnMapping columnMapping) {}
+
+    private record ColumnMapping(int studentExternalId, int fullName, int diplomaNumber, int programName, int graduationYear) {
+        private static ColumnMapping legacy() {
+            return new ColumnMapping(0, 1, 2, 3, -1);
+        }
+    }
+
     private record RawImportRow(int rowNumber, List<String> cells) {}
 
-    private record ParsedRow(String studentExternalId, String fullName, String diplomaNumber, String programName) {}
+    private record ParsedRow(String studentExternalId, String fullName, String diplomaNumber, String programName, Integer graduationYear) {}
 
-    private record UpsertedDiploma(UUID id, String verificationToken, String eventType) {}
+    private record UpsertedDiploma(UUID id, String verificationToken, String recordHash, String eventType) {}
 
     private static final class ImportRowException extends RuntimeException {
         private final String code;

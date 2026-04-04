@@ -66,6 +66,7 @@ app:
     retry-max-backoff: ${OUTBOX_RETRY_MAX_BACKOFF:PT5S}
   gateway:
     public-base-url: ${GATEWAY_PUBLIC_BASE_URL:http://localhost:8080}
+    service-token: ${GATEWAY_SERVICE_TOKEN:diasoft-service-token}
   share-link:
     ttl: ${SHARE_LINK_TTL:PT24H}
     max-views: ${SHARE_LINK_MAX_VIEWS:3}
