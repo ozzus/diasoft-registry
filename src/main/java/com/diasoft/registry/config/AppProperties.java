@@ -42,7 +42,12 @@ public record AppProperties(
 
     public record Import(
             @Min(1) int chunkSize,
-            @NotNull Duration pollDelay
+            @Min(1) int chunkPayloadBytes,
+            @Min(1) long maxFileSizeBytes,
+            @Min(1) int maxRowsPerFile,
+            @Min(1) int maxFilesPerSession,
+            @NotNull Duration pollDelay,
+            @NotNull Duration presignTtl
     ) {}
 
     public record ObjectStorage(

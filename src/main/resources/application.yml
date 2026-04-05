@@ -48,7 +48,12 @@ app:
     allowed-origins: ${APP_ALLOWED_ORIGINS:*}
   import:
     chunk-size: ${IMPORT_CHUNK_SIZE:500}
+    chunk-payload-bytes: ${IMPORT_CHUNK_PAYLOAD_BYTES:8388608}
+    max-file-size-bytes: ${IMPORT_MAX_FILE_SIZE_BYTES:67108864}
+    max-rows-per-file: ${IMPORT_MAX_ROWS_PER_FILE:100000}
+    max-files-per-session: ${IMPORT_MAX_FILES_PER_SESSION:20}
     poll-delay: ${IMPORT_POLL_DELAY:5000}
+    presign-ttl: ${IMPORT_PRESIGN_TTL:PT15M}
   object-storage:
     endpoint: ${OBJECT_STORAGE_ENDPOINT:http://localhost:9000}
     bucket: ${OBJECT_STORAGE_BUCKET:diploma-imports}

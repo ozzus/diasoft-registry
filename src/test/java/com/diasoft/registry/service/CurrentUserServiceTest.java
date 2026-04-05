@@ -128,7 +128,15 @@ class CurrentUserServiceTest {
                         )
                 ),
                 new AppProperties.Http(List.of("http://localhost:5173")),
-                new AppProperties.Import(500, Duration.ofSeconds(5)),
+                new AppProperties.Import(
+                        500,
+                        8 * 1024 * 1024,
+                        64L * 1024 * 1024,
+                        100_000,
+                        20,
+                        Duration.ofSeconds(5),
+                        Duration.ofMinutes(15)
+                ),
                 new AppProperties.ObjectStorage(
                         "http://localhost:9000",
                         "diploma-imports",
@@ -139,7 +147,7 @@ class CurrentUserServiceTest {
                         true
                 ),
                 new AppProperties.Outbox(100, Duration.ofSeconds(5), "diasoft-registry", 3, Duration.ofSeconds(1), Duration.ofSeconds(5)),
-                new AppProperties.Gateway("http://localhost:8080"),
+                new AppProperties.Gateway("http://localhost:8080", "diasoft-service-token"),
                 new AppProperties.ShareLink(Duration.ofHours(24), 3)
         );
     }

@@ -8,6 +8,7 @@ import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3Configuration;
+import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 
 @Configuration
 public class ObjectStorageConfig {
@@ -15,6 +16,17 @@ public class ObjectStorageConfig {
     S3Client s3Client(AppProperties properties) {
         AppProperties.ObjectStorage cfg = properties.objectStorage();
         return S3Client.builder()
+                .endpointOverride(URI.create(cfg.endpoint()))
+                .credentialsProvider(StaticCredentialsProvider.create(AwsBasicCredentials.create(cfg.accessKey(), cfg.secretKey())))
+                .serviceConfiguration(S3Configuration.builder().pathStyleAccessEnabled(cfg.pathStyleAccess()).build())
+                .region(Region.of(cfg.region()))
+                .build();
+    }
+
+    @Bean
+    S3Presigner s3Presigner(AppProperties properties) {
+        AppProperties.ObjectStorage cfg = properties.objectStorage();
+        return S3Presigner.builder()
                 .endpointOverride(URI.create(cfg.endpoint()))
                 .credentialsProvider(StaticCredentialsProvider.create(AwsBasicCredentials.create(cfg.accessKey(), cfg.secretKey())))
                 .serviceConfiguration(S3Configuration.builder().pathStyleAccessEnabled(cfg.pathStyleAccess()).build())
