@@ -71,6 +71,7 @@ The same image can run in three modes using `APP_RUNTIME_MODE`:
 - processes rows asynchronously
 - records stable validation errors per row
 - publishes domain events through transactional outbox
+- GitHub Actions validation, publish, and promotion workflow
 
 ## Run
 
@@ -83,3 +84,12 @@ The same image can run in three modes using `APP_RUNTIME_MODE`:
 ```bash
 ./gradlew test
 ```
+
+## CI/CD
+
+- canonical CI runs in GitHub Actions
+- images publish to:
+  - `ghcr.io/ozzus/diasoft-registry/registry-api`
+  - `ghcr.io/ozzus/diasoft-registry/registry-import-worker`
+  - `ghcr.io/ozzus/diasoft-registry/registry-outbox-publisher`
+- `platform-infra` promotion is done by GitHub-based direct commits for `dev` and pull requests for controlled promotion paths
