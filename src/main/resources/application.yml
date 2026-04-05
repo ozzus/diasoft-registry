@@ -1,6 +1,10 @@
 spring:
   application:
     name: diasoft-registry
+  servlet:
+    multipart:
+      max-file-size: ${SPRING_MULTIPART_MAX_FILE_SIZE:64MB}
+      max-request-size: ${SPRING_MULTIPART_MAX_REQUEST_SIZE:70MB}
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/diasoft_registry}
     username: ${SPRING_DATASOURCE_USERNAME:registry}
