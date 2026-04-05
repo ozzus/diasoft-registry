@@ -6,6 +6,7 @@ import jakarta.validation.constraints.NotNull;
 import java.time.Duration;
 import java.util.List;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.Name;
 import org.springframework.validation.annotation.Validated;
 
 @Validated
@@ -14,6 +15,7 @@ public record AppProperties(
         Runtime runtime,
         Security security,
         Http http,
+        @Name("import")
         Import importConfig,
         ObjectStorage objectStorage,
         Outbox outbox,
